@@ -23,6 +23,12 @@ const {
     formatHelp,
 } = require("./formatter");
 
+const {
+    isSpecialUser,
+    handleSpecialCommand,
+    handleGameAnswer,
+    getSpecialFallback,
+} = require("./special-game");
 
 /*
 |--------------------------------------------------------------------------
@@ -1278,29 +1284,108 @@ command yang tersedia.`;
 |--------------------------------------------------------------------------
 */
 
-async function processMessage(
-    message
-) {
+async function processMessage(message) {
 
-    const chat =
-        message.number;
+    const chat = message.number;
 
 
     /*
-     * Satu command per chat
-     */
+    |--------------------------------------------------------------------------
+    | SPECIAL USER MODE
+    |--------------------------------------------------------------------------
+    */
 
-    if (
-        activeChats.has(chat)
-    ) {
+    if (isSpecialUser(chat)) {
 
         console.log(
-            `[BUSY] ${chat}`
+            `[SPECIAL] Message from special user: ${message.text}`
         );
 
 
-        await sendWhatsApp(
+        /*
+         * 1. Coba proses jawaban game
+         *
+         * Contoh:
+         * !truth
+         *      ↓
+         * bot bertanya
+         *
+         * "karena kamu lucu"
+         *      ↓
+         * dianggap sebagai jawaban
+         */
 
+        const gameAnswer =
+            handleGameAnswer(
+                chat,
+                message.text
+            );
+
+
+        if (gameAnswer) {
+
+            await sendWhatsApp(
+                chat,
+                gameAnswer
+            );
+
+            return;
+        }
+
+
+        /*
+         * 2. Coba command khusus
+         */
+
+        const special =
+            handleSpecialCommand(
+                message
+            );
+
+
+        if (special.handled) {
+
+            await sendWhatsApp(
+                chat,
+                special.reply
+            );
+
+            return;
+        }
+
+
+        /*
+         * 3. Kalau bukan command khusus,
+         *    anggap sebagai chat biasa.
+         *
+         *    Bot tidak masuk ke command monitoring.
+         */
+
+        const fallback =
+            getSpecialFallback(
+                message.text
+            );
+
+
+        await sendWhatsApp(
+            chat,
+            fallback
+        );
+
+
+        return;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | NORMAL MONITORING MODE
+    |--------------------------------------------------------------------------
+    */
+
+    if (activeChats.has(chat)) {
+
+        await sendWhatsApp(
             chat,
 
             `⏳ *COMMAND SEDANG DIPROSES*
@@ -1309,12 +1394,12 @@ async function processMessage(
 
 Command sebelumnya masih berjalan.
 
-🔒 Hanya satu command yang dapat dijalankan pada satu chat.
+🔒 Hanya satu command
+yang dapat dijalankan pada
+satu chat.
 
 Mohon tunggu sebentar...`
-
         ).catch(() => {});
-
 
         return;
     }
@@ -1345,10 +1430,6 @@ Mohon tunggu sebentar...`
     }
 
 
-    /*
-     * Simpan waktu command
-     */
-
     cooldowns.set(
         chat,
         now
@@ -1376,11 +1457,8 @@ Mohon tunggu sebentar...`
 
 
         await sendWhatsApp(
-
             chat,
-
             reply
-
         );
 
 
@@ -1395,7 +1473,6 @@ Mohon tunggu sebentar...`
         try {
 
             await sendWhatsApp(
-
                 chat,
 
                 `╭━━━ ❌ MONITORING ERROR ━━━╮
@@ -1408,7 +1485,6 @@ Mohon tunggu sebentar...`
 ╰━━━━━━━━━━━━━━━━━━━━━━━━╯
 
 💡 Silakan coba kembali beberapa saat lagi.`
-
             );
 
         } catch (
@@ -1416,23 +1492,18 @@ Mohon tunggu sebentar...`
         ) {
 
             console.error(
-
                 "[COMMAND] Failed to send error:",
                 sendError.message
-
             );
         }
 
+
     } finally {
 
-        /*
-         * Unlock chat
-         */
-
         activeChats.delete(chat);
+
     }
 }
-
 
 /*
 |--------------------------------------------------------------------------

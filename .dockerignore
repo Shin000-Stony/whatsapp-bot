@@ -38,5 +38,10 @@ docker-compose.override.yml
 coverage/
 .nyc_output/
 
+data/
+*.db
+*.db-shm
+*.db-wal
+
 # Documentation
 README.md

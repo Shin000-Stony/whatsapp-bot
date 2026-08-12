@@ -94,6 +94,11 @@ docker-compose.override.yml
 secrets/
 certs/
 
+# SQLite
+data/
+*.db
+*.db-shm
+*.db-wal
 
 # =========================
 # Backup
