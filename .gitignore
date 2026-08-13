@@ -1,0 +1,109 @@
+# =========================
+# Environment / Secrets
+# =========================
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Keep example environment
+!.env.example
+
+
+# =========================
+# Node.js
+# =========================
+
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# =========================
+# Logs
+# =========================
+
+*.log
+logs/
+
+
+# =========================
+# Runtime
+# =========================
+
+tmp/
+temp/
+.cache/
+
+
+# =========================
+# Coverage
+# =========================
+
+coverage/
+.nyc_output/
+
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+
+# =========================
+# IDE
+# =========================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+# =========================
+# Docker
+# =========================
+
+docker-compose.override.yml
+
+
+# =========================
+# Local configuration
+# =========================
+
+*.local
+
+
+# =========================
+# Secrets / certificates
+# =========================
+
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+secrets/
+certs/
+
+# SQLite
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# =========================
+# Backup
+# =========================
+
+*.bak
+*.backup
+*.old
