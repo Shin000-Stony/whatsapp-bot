@@ -4,14 +4,9 @@ const express = require("express");
 const axios = require("axios");
 
 const {
-    getCpuUsage,
-    getMemory,
-    getUptime,
-    getDisk,
-    getLoadAverage,
-    getDockerContainers,
-    getNetwork,
-} = require("./host-monitor");
+    getHomeServerStatus,
+    getHomeServerHealth,
+} = require("./home-server-monitor");
 
 const {
     formatStatus,
@@ -29,6 +24,7 @@ const {
     handleGameAnswer,
     getSpecialFallback,
 } = require("./special-game");
+
 
 /*
 |--------------------------------------------------------------------------
@@ -51,37 +47,40 @@ const PORT =
 */
 
 const INSTANCE =
-    process.env.EVOLUTION_INSTANCE;
+    process.env.EVOLUTION_INSTANCE || "";
 
 const BOT_NUMBER =
     process.env.BOT_NUMBER || "";
 
-const COOLDOWN =
+const COMMAND_COOLDOWN =
     Number(process.env.COMMAND_COOLDOWN) || 3000;
 
 
 /*
 |--------------------------------------------------------------------------
-| SCHEDULE CONFIGURATION
+| SCHEDULER
+|--------------------------------------------------------------------------
+|
+| Default:
+|
+| STATUS_REPORT_INTERVAL = 30 menit
+| ALERT_CHECK_INTERVAL   = 1 menit
+|
 |--------------------------------------------------------------------------
 */
 
-// Default: 30 menit
 const STATUS_INTERVAL =
     Number(
         process.env.STATUS_REPORT_INTERVAL
     ) || 30 * 60 * 1000;
 
-
-// Default: cek alert setiap 1 menit
 const ALERT_INTERVAL =
     Number(
         process.env.ALERT_CHECK_INTERVAL
     ) || 60 * 1000;
 
-
 const STATUS_REPORT_NUMBER =
-    process.env.STATUS_REPORT_NUMBER;
+    process.env.STATUS_REPORT_NUMBER || "";
 
 
 /*
@@ -104,6 +103,7 @@ const evolution = axios.create({
     },
 
     timeout: 15000,
+
 });
 
 
@@ -113,15 +113,21 @@ const evolution = axios.create({
 |--------------------------------------------------------------------------
 */
 
-// Chat yang sedang menjalankan command
+/*
+ * Chat yang sedang menjalankan command.
+ */
 const activeChats = new Set();
 
 
-// Waktu command terakhir setiap chat
+/*
+ * Cooldown setiap chat.
+ */
 const cooldowns = new Map();
 
 
-// State alert
+/*
+ * State resource alert.
+ */
 const alertState = {
 
     cpu: "normal",
@@ -137,7 +143,7 @@ const alertState = {
 
 /*
 |--------------------------------------------------------------------------
-| UTILITY
+| NUMBER UTILITY
 |--------------------------------------------------------------------------
 */
 
@@ -155,7 +161,7 @@ function normalizeNumber(number) {
 
 /*
 |--------------------------------------------------------------------------
-| SEND WHATSAPP MESSAGE
+| SEND WHATSAPP
 |--------------------------------------------------------------------------
 */
 
@@ -195,13 +201,14 @@ async function sendWhatsApp(
         );
 
         throw error;
+
     }
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| CHECK OWN MESSAGE
+| OWN MESSAGE DETECTION
 |--------------------------------------------------------------------------
 */
 
@@ -214,7 +221,9 @@ function isOwnMessage(data) {
     if (
         data?.key?.fromMe === true
     ) {
+
         return true;
+
     }
 
 
@@ -223,12 +232,14 @@ function isOwnMessage(data) {
 
 
     if (!remoteJid) {
+
         return true;
+
     }
 
 
     /*
-     * Bandingkan dengan nomor bot
+     * Bandingkan nomor bot.
      */
 
     if (BOT_NUMBER) {
@@ -257,10 +268,12 @@ function isOwnMessage(data) {
             return true;
 
         }
+
     }
 
 
     return false;
+
 }
 
 
@@ -277,12 +290,14 @@ function parseMessage(body) {
 
 
     if (!data) {
+
         return null;
+
     }
 
 
     /*
-     * Ignore pesan bot sendiri
+     * Ignore pesan bot sendiri.
      */
 
     if (
@@ -294,6 +309,7 @@ function parseMessage(body) {
         );
 
         return null;
+
     }
 
 
@@ -302,12 +318,14 @@ function parseMessage(body) {
 
 
     if (!remoteJid) {
+
         return null;
+
     }
 
 
     /*
-     * Ignore group
+     * Ignore group.
      */
 
     if (
@@ -319,6 +337,7 @@ function parseMessage(body) {
         );
 
         return null;
+
     }
 
 
@@ -327,12 +346,14 @@ function parseMessage(body) {
 
 
     if (!message) {
+
         return null;
+
     }
 
 
     /*
-     * Support berbagai tipe text
+     * Support text dan caption.
      */
 
     const text =
@@ -349,7 +370,9 @@ function parseMessage(body) {
 
 
     if (!text.trim()) {
+
         return null;
+
     }
 
 
@@ -361,7 +384,8 @@ function parseMessage(body) {
             )
             .replace(
                 "@c.us",
-                "");
+                ""
+            );
 
 
     return {
@@ -380,98 +404,58 @@ function parseMessage(body) {
             "User",
 
     };
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| GET FULL SERVER STATUS
+| HOME SERVER
 |--------------------------------------------------------------------------
 */
 
+/*
+ * SEMUA monitoring sekarang berasal dari Home Server.
+ *
+ * EC2 tidak lagi menggunakan:
+ *
+ * getCpuUsage()
+ * getMemory()
+ * getDisk()
+ * getUptime()
+ * getDockerContainers()
+ * getNetwork()
+ *
+ * dari host-monitor.js.
+ */
+
 async function getFullStatus() {
 
-    const [
+    try {
 
-        cpu,
+        const data =
+            await getHomeServerStatus();
 
-        memory,
+        return data;
 
-        uptime,
+    } catch (error) {
 
-        disk,
+        console.error(
+            "[HOME SERVER] Failed to get status:",
+            error.response?.data ||
+            error.message
+        );
 
-        load,
+        throw error;
 
-        containers,
+    }
 
-        network,
-
-    ] = await Promise.all([
-
-        getCpuUsage(),
-
-        getMemory(),
-
-        getUptime(),
-
-        getDisk(),
-
-        getLoadAverage(),
-
-        getDockerContainers(),
-
-        getNetwork(),
-
-    ]);
-
-
-    const running =
-        containers.filter(
-            container =>
-                container.running
-        ).length;
-
-
-    const stopped =
-        containers.length -
-        running;
-
-
-    return {
-
-        cpu,
-
-        memory,
-
-        uptime,
-
-        disk,
-
-        load,
-
-        docker: {
-
-            total:
-                containers.length,
-
-            running,
-
-            stopped,
-
-        },
-
-        containers,
-
-        network,
-
-    };
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| SCHEDULED STATUS
+| SCHEDULED STATUS REPORT
 |--------------------------------------------------------------------------
 */
 
@@ -484,13 +468,14 @@ async function sendScheduledStatus() {
         );
 
         return;
+
     }
 
 
     try {
 
         console.log(
-            "[SCHEDULER] Mengambil status server..."
+            "[SCHEDULER] Mengambil status Home Server..."
         );
 
 
@@ -506,20 +491,29 @@ async function sendScheduledStatus() {
 
             STATUS_REPORT_NUMBER,
 
-            `📊 *PERIODIC SERVER REPORT*
+            `📊 *PERIODIC HOME SERVER REPORT*
 
 ━━━━━━━━━━━━━━━━━━
 
 ${message}
 
 ━━━━━━━━━━━━━━━━━━
+
+☁️ EC2 WATCHDOG
+🟢 ONLINE
+
+📡 Data:
+🏠 Home Server
+
+━━━━━━━━━━━━━━━━━━
+
 🤖 WhatsApp Server Monitoring`
 
         );
 
 
         console.log(
-            `[SCHEDULER] Status berhasil dikirim ke ${STATUS_REPORT_NUMBER}`
+            "[SCHEDULER] Home Server status berhasil dikirim"
         );
 
 
@@ -527,19 +521,20 @@ ${message}
 
         console.error(
 
-            "[SCHEDULER] Gagal mengirim status:",
-
+            "[SCHEDULER] Gagal mengambil/mengirim status:",
             error.response?.data ||
             error.message
 
         );
+
     }
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| ALERT LEVEL
+| RESOURCE LEVEL
 |--------------------------------------------------------------------------
 */
 
@@ -568,6 +563,7 @@ function getResourceLevel(
 
 
     return "normal";
+
 }
 
 
@@ -578,17 +574,11 @@ function getResourceLevel(
 */
 
 async function processResourceAlert(
-
     resource,
-
     level,
-
     value,
-
     number,
-
     label
-
 ) {
 
     const previous =
@@ -596,7 +586,7 @@ async function processResourceAlert(
 
 
     /*
-     * Tidak ada perubahan
+     * Tidak ada perubahan.
      */
 
     if (
@@ -609,7 +599,7 @@ async function processResourceAlert(
 
 
     /*
-     * Update state
+     * Update state.
      */
 
     alertState[resource] =
@@ -636,6 +626,9 @@ async function processResourceAlert(
 
 ━━━━━━━━━━━━━━━━━━
 
+🏠 Server:
+*Home Server*
+
 🖥️ Resource:
 *${label}*
 
@@ -645,14 +638,18 @@ async function processResourceAlert(
 🟢 Status:
 *NORMAL*
 
-✅ Resource kembali dalam batas normal.
-
 ━━━━━━━━━━━━━━━━━━
-🤖 Server Monitoring`
+
+✅ Resource kembali
+dalam batas normal.
+
+☁️ EC2 Watchdog
+🟢 ONLINE`
 
         );
 
         return;
+
     }
 
 
@@ -680,6 +677,9 @@ async function processResourceAlert(
 
 ━━━━━━━━━━━━━━━━━━
 
+🏠 Server:
+*Home Server*
+
 🖥️ Resource:
 *${label}*
 
@@ -691,11 +691,14 @@ async function processResourceAlert(
 
 ━━━━━━━━━━━━━━━━━━
 
-⚠️ Server membutuhkan perhatian.
+⚠️ Home Server membutuhkan
+perhatian.
 
-🤖 Server Monitoring`
+☁️ EC2 Watchdog
+🟢 ONLINE`
 
     );
+
 }
 
 
@@ -711,7 +714,9 @@ async function checkDockerAlert(
 ) {
 
     const containers =
-        data.containers || [];
+        data?.docker?.containers ||
+        data?.containers ||
+        [];
 
 
     const stopped =
@@ -722,6 +727,11 @@ async function checkDockerAlert(
 
         );
 
+
+    /*
+     * Jika tidak ada container,
+     * jangan dianggap sebagai masalah.
+     */
 
     const currentState =
         stopped.length > 0
@@ -734,7 +744,7 @@ async function checkDockerAlert(
 
 
     /*
-     * Tidak ada perubahan
+     * Tidak ada perubahan.
      */
 
     if (
@@ -742,11 +752,12 @@ async function checkDockerAlert(
     ) {
 
         return;
+
     }
 
 
     /*
-     * Update state
+     * Update state.
      */
 
     alertState.docker =
@@ -773,20 +784,27 @@ async function checkDockerAlert(
 
 ━━━━━━━━━━━━━━━━━━
 
-🐳 Semua container kembali berjalan.
+🏠 Server:
+*Home Server*
 
-📦 Total:
+🐳 Docker:
+🟢 NORMAL
+
+📦 Total Container:
 *${containers.length}*
 
-🟢 Status:
-*ALL CONTAINERS RUNNING*
-
 ━━━━━━━━━━━━━━━━━━
-🤖 Server Monitoring`
+
+✅ Semua container
+kembali berjalan.
+
+☁️ EC2 Watchdog
+🟢 ONLINE`
 
         );
 
         return;
+
     }
 
 
@@ -819,18 +837,25 @@ async function checkDockerAlert(
 
 ━━━━━━━━━━━━━━━━━━
 
+🏠 Server:
+*Home Server*
+
 🐳 Container bermasalah:
 
 ${list}
 
 ━━━━━━━━━━━━━━━━━━
 
-⚠️ Segera periksa container tersebut.
+⚠️ Segera periksa
+container tersebut.
 
-🤖 Server Monitoring`
+☁️ EC2 Watchdog
+🟢 ONLINE`
 
         );
+
     }
+
 }
 
 
@@ -849,29 +874,45 @@ async function checkServerAlerts() {
         );
 
         return;
+
     }
 
 
     try {
+
+        /*
+         * PENTING:
+         *
+         * Data diambil dari:
+         *
+         * Home Server /status
+         *
+         * bukan dari EC2.
+         */
 
         const data =
             await getFullStatus();
 
 
         /*
-         * CPU
-         */
+        * CPU
+        */
 
-        const cpu =
-            Number(
-                data.cpu || 0
-            );
+        const cpuValue =
+            data?.cpu?.usage ??
+            data?.cpu ??
+            0;
 
+        const cpu = Number(cpuValue);
+
+        const safeCpu =
+            Number.isFinite(cpu)
+                ? cpu
+                : 0;
 
         const cpuLevel =
             getResourceLevel(
-
-                cpu,
+                safeCpu,
 
                 Number(
                     process.env.ALERT_CPU_WARNING
@@ -880,8 +921,15 @@ async function checkServerAlerts() {
                 Number(
                     process.env.ALERT_CPU_CRITICAL
                 ) || 95
-
             );
+
+        await processResourceAlert(
+            "cpu",
+            cpuLevel,
+            safeCpu,
+            STATUS_REPORT_NUMBER,
+            "CPU"
+        );
 
 
         /*
@@ -890,7 +938,8 @@ async function checkServerAlerts() {
 
         const ram =
             Number(
-                data.memory?.percent || 0
+                data?.memory?.percent ||
+                0
             );
 
 
@@ -916,7 +965,8 @@ async function checkServerAlerts() {
 
         const disk =
             Number(
-                data.disk?.percent || 0
+                data?.disk?.percent ||
+                0
             );
 
 
@@ -937,7 +987,7 @@ async function checkServerAlerts() {
 
 
         /*
-         * Process resource alerts
+         * Resource alerts.
          */
 
         await processResourceAlert(
@@ -986,7 +1036,7 @@ async function checkServerAlerts() {
 
 
         /*
-         * Docker
+         * Docker alert.
          */
 
         await checkDockerAlert(
@@ -1002,13 +1052,15 @@ async function checkServerAlerts() {
 
         console.error(
 
-            "[ALERT] Monitoring error:",
+            "[ALERT] Home Server monitoring error:",
 
             error.response?.data ||
             error.message
 
         );
+
     }
+
 }
 
 
@@ -1042,12 +1094,26 @@ function parseCommand(text) {
         args,
 
     };
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
 | COMMAND HANDLER
+|--------------------------------------------------------------------------
+|
+| SEMUA COMMAND MONITORING:
+|
+| !status
+| !cpu
+| !ram
+| !disk
+| !uptime
+| !docker
+| !network
+|
+| sekarang mengambil data dari Home Server.
 |--------------------------------------------------------------------------
 */
 
@@ -1072,14 +1138,35 @@ async function handleCommand(
         command === "!ping"
     ) {
 
+        let homeOnline = false;
+
+        try {
+
+            const health =
+                await getHomeServerHealth();
+
+            homeOnline =
+                health?.status === "online";
+
+        } catch {
+
+            homeOnline = false;
+
+        }
+
+
         return `╭━━━ 🏓 PING ━━━╮
 ┃
 ┃ 🟢 BOT ONLINE
-┃
 ┃ 🟢 Evolution API
 ┃ 🟢 Webhook
 ┃ 🟢 Command Handler
-┃ 🟢 Host Monitor
+┃
+┃ 🏠 Home Server
+┃ ${homeOnline ? "🟢 ONLINE" : "🔴 OFFLINE"}
+┃
+┃ ☁️ EC2 Watchdog
+┃ 🟢 ONLINE
 ┃
 ╰━━━━━━━━━━━━━━━━╯
 
@@ -1129,17 +1216,28 @@ async function handleCommand(
         command === "!cpu"
     ) {
 
-        const [
-            cpu,
-            load,
-        ] =
-            await Promise.all([
+        const data =
+            await getFullStatus();
 
-                getCpuUsage(),
 
-                getLoadAverage(),
+        const cpu =
+            Number(
+                data?.cpu?.usage ??
+                data?.cpu ??
+                0
+            );
 
-            ]);
+
+        const load =
+            data?.load || {
+
+                one: 0,
+
+                five: 0,
+
+                fifteen: 0,
+
+            };
 
 
         return formatCpu({
@@ -1161,8 +1259,22 @@ async function handleCommand(
         command === "!ram"
     ) {
 
+        const data =
+            await getFullStatus();
+
+
         const memory =
-            getMemory();
+            data?.memory || {
+
+                total: 0,
+
+                used: 0,
+
+                available: 0,
+
+                percent: 0,
+
+            };
 
 
         return formatMemory(
@@ -1180,8 +1292,28 @@ async function handleCommand(
         command === "!disk"
     ) {
 
+        const data =
+            await getFullStatus();
+
+
         const disk =
-            await getDisk();
+            data?.disk || {
+
+                total: 0,
+
+                used: 0,
+
+                free:
+                    data?.disk?.available ||
+                    0,
+
+                available:
+                    data?.disk?.free ||
+                    0,
+
+                percent: 0,
+
+            };
 
 
         return formatDisk(
@@ -1199,21 +1331,34 @@ async function handleCommand(
         command === "!uptime"
     ) {
 
+        const data =
+            await getFullStatus();
+
+
         const uptime =
-            getUptime();
+            data?.uptime || {
+
+                formatted:
+                    "Unknown",
+
+            };
 
 
-        return `╭━━━ ⏱️ SERVER UPTIME ━━━╮
+        return `╭━━━ ⏱️ HOME SERVER UPTIME ━━━╮
 ┃
-┃ 🟢 SERVER ONLINE
+┃ 🏠 HOME SERVER
+┃ 🟢 ONLINE
 ┃
 ┃ ⏱️ Uptime
 ┃ ${uptime.formatted}
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━╯
 
-🟢 Monitoring service
-   berjalan normal.`;
+☁️ EC2 Watchdog
+🟢 ONLINE
+
+📡 Data source:
+🏠 Home Server`;
 
     }
 
@@ -1226,8 +1371,14 @@ async function handleCommand(
         command === "!docker"
     ) {
 
+        const data =
+            await getFullStatus();
+
+
         const containers =
-            await getDockerContainers();
+            data?.docker?.containers ||
+            data?.containers ||
+            [];
 
 
         return formatDocker(
@@ -1245,8 +1396,13 @@ async function handleCommand(
         command === "!network"
     ) {
 
+        const data =
+            await getFullStatus();
+
+
         const network =
-            await getNetwork();
+            data?.network ||
+            [];
 
 
         return formatNetwork(
@@ -1275,27 +1431,31 @@ async function handleCommand(
 
 untuk melihat daftar
 command yang tersedia.`;
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| PROCESS COMMAND
+| PROCESS MESSAGE
 |--------------------------------------------------------------------------
 */
 
-async function processMessage(message) {
+async function processMessage(
+    message
+) {
 
-    const chat = message.number;
+    const chat =
+        message.number;
 
 
     /*
-    |--------------------------------------------------------------------------
-    | SPECIAL USER MODE
-    |--------------------------------------------------------------------------
-    */
+     * SPECIAL USER MODE
+     */
 
-    if (isSpecialUser(chat)) {
+    if (
+        isSpecialUser(chat)
+    ) {
 
         console.log(
             `[SPECIAL] Message from special user: ${message.text}`
@@ -1303,16 +1463,7 @@ async function processMessage(message) {
 
 
         /*
-         * 1. Coba proses jawaban game
-         *
-         * Contoh:
-         * !truth
-         *      ↓
-         * bot bertanya
-         *
-         * "karena kamu lucu"
-         *      ↓
-         * dianggap sebagai jawaban
+         * Game answer
          */
 
         const gameAnswer =
@@ -1330,11 +1481,12 @@ async function processMessage(message) {
             );
 
             return;
+
         }
 
 
         /*
-         * 2. Coba command khusus
+         * Special command
          */
 
         const special =
@@ -1343,7 +1495,9 @@ async function processMessage(message) {
             );
 
 
-        if (special.handled) {
+        if (
+            special.handled
+        ) {
 
             await sendWhatsApp(
                 chat,
@@ -1351,14 +1505,12 @@ async function processMessage(message) {
             );
 
             return;
+
         }
 
 
         /*
-         * 3. Kalau bukan command khusus,
-         *    anggap sebagai chat biasa.
-         *
-         *    Bot tidak masuk ke command monitoring.
+         * Fallback.
          */
 
         const fallback =
@@ -1374,18 +1526,20 @@ async function processMessage(message) {
 
 
         return;
+
     }
 
 
     /*
-    |--------------------------------------------------------------------------
-    | NORMAL MONITORING MODE
-    |--------------------------------------------------------------------------
-    */
+     * NORMAL MONITORING MODE
+     */
 
-    if (activeChats.has(chat)) {
+    if (
+        activeChats.has(chat)
+    ) {
 
         await sendWhatsApp(
+
             chat,
 
             `⏳ *COMMAND SEDANG DIPROSES*
@@ -1399,14 +1553,17 @@ yang dapat dijalankan pada
 satu chat.
 
 Mohon tunggu sebentar...`
+
         ).catch(() => {});
 
+
         return;
+
     }
 
 
     /*
-     * Cooldown
+     * COOLDOWN
      */
 
     const now =
@@ -1419,7 +1576,7 @@ Mohon tunggu sebentar...`
 
     if (
         now - lastCommand <
-        COOLDOWN
+        COMMAND_COOLDOWN
     ) {
 
         console.log(
@@ -1427,6 +1584,7 @@ Mohon tunggu sebentar...`
         );
 
         return;
+
     }
 
 
@@ -1437,7 +1595,7 @@ Mohon tunggu sebentar...`
 
 
     /*
-     * Lock chat
+     * LOCK CHAT
      */
 
     activeChats.add(chat);
@@ -1473,18 +1631,21 @@ Mohon tunggu sebentar...`
         try {
 
             await sendWhatsApp(
+
                 chat,
 
                 `╭━━━ ❌ MONITORING ERROR ━━━╮
 ┃
 ┃ Command gagal diproses.
 ┃
-┃ ⚠️ Terjadi kesalahan
-┃ pada monitoring server.
+┃ ⚠️ Home Server mungkin
+┃ tidak dapat dihubungi.
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━━━╯
 
-💡 Silakan coba kembali beberapa saat lagi.`
+💡 Silakan coba kembali
+beberapa saat lagi.`
+
             );
 
         } catch (
@@ -1495,15 +1656,19 @@ Mohon tunggu sebentar...`
                 "[COMMAND] Failed to send error:",
                 sendError.message
             );
-        }
 
+        }
 
     } finally {
 
-        activeChats.delete(chat);
+        activeChats.delete(
+            chat
+        );
 
     }
+
 }
+
 
 /*
 |--------------------------------------------------------------------------
@@ -1523,13 +1688,16 @@ app.get(
                 "WhatsApp Server Monitoring Bot",
 
             version:
-                "2.0.0",
+                "3.0.0",
 
             instance:
                 INSTANCE,
 
             uptime:
                 process.uptime(),
+
+            monitoring:
+                "Home Server",
 
         });
 
@@ -1554,6 +1722,9 @@ app.get(
             service:
                 "whatsapp-monitoring-bot",
 
+            monitoring:
+                "home-server",
+
             timestamp:
                 new Date().toISOString(),
 
@@ -1574,7 +1745,7 @@ app.post(
     async (req, res) => {
 
         /*
-         * Balas webhook secepat mungkin
+         * Balas webhook secepat mungkin.
          */
 
         res.sendStatus(200);
@@ -1594,7 +1765,9 @@ app.post(
 
 
             if (!message) {
+
                 return;
+
             }
 
 
@@ -1627,6 +1800,7 @@ app.post(
                 "[WEBHOOK] Error:",
                 error
             );
+
         }
 
     }
@@ -1725,6 +1899,10 @@ app.listen(
         );
 
         console.log(
+            `Monitoring : HOME SERVER`
+        );
+
+        console.log(
             `Report interval : ${
                 STATUS_INTERVAL / 60000
             } minutes`
@@ -1750,33 +1928,27 @@ app.listen(
 
 /*
 |--------------------------------------------------------------------------
-| SCHEDULER
+| SCHEDULERS
 |--------------------------------------------------------------------------
 */
 
 /*
- * Status server setiap 30 menit
+ * Status Home Server setiap 30 menit.
  */
 
 setInterval(
-
     sendScheduledStatus,
-
     STATUS_INTERVAL
-
 );
 
 
 /*
- * Check alert setiap 1 menit
+ * Resource alert Home Server setiap 1 menit.
  */
 
 setInterval(
-
     checkServerAlerts,
-
     ALERT_INTERVAL
-
 );
 
 

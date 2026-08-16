@@ -1,36 +1,157 @@
-function progressBar(percent, length = 10) {
-    percent = Math.max(0, Math.min(100, Number(percent) || 0));
+/*
+|--------------------------------------------------------------------------
+| FORMATTER
+|--------------------------------------------------------------------------
+| Formatter untuk data monitoring dari Home Server.
+|
+| Struktur CPU dari server.py:
+|
+| "cpu": {
+|     "usage": 12.34
+| }
+|
+|--------------------------------------------------------------------------
+*/
 
-    const filled = Math.round((percent / 100) * length);
-    const empty = length - filled;
 
-    return "█".repeat(filled) + "░".repeat(empty);
+/*
+|--------------------------------------------------------------------------
+| SAFE NUMBER
+|--------------------------------------------------------------------------
+*/
+
+function safeNumber(value, fallback = 0) {
+    const number = Number(value);
+
+    return Number.isFinite(number)
+        ? number
+        : fallback;
 }
 
-function statusIcon(percent) {
-    percent = Number(percent) || 0;
 
-    if (percent >= 95) return "🔴";
-    if (percent >= 85) return "🟠";
-    if (percent >= 70) return "🟡";
+/*
+|--------------------------------------------------------------------------
+| CPU VALUE
+|--------------------------------------------------------------------------
+| Mendukung:
+|
+| data.cpu.usage
+| data.cpu
+|
+| sehingga kompatibel dengan format lama maupun baru.
+|--------------------------------------------------------------------------
+*/
+
+function getCpuValue(data) {
+
+    const value =
+        data?.cpu?.usage ??
+        data?.cpu ??
+        0;
+
+    return safeNumber(value);
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| PROGRESS BAR
+|--------------------------------------------------------------------------
+*/
+
+function progressBar(
+    percent,
+    length = 10
+) {
+
+    percent = Math.max(
+        0,
+        Math.min(
+            100,
+            safeNumber(percent)
+        )
+    );
+
+    const filled =
+        Math.round(
+            (percent / 100) * length
+        );
+
+    const empty =
+        length - filled;
+
+    return (
+        "█".repeat(filled) +
+        "░".repeat(empty)
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| STATUS ICON
+|--------------------------------------------------------------------------
+*/
+
+function statusIcon(percent) {
+
+    percent =
+        safeNumber(percent);
+
+    if (percent >= 95) {
+        return "🔴";
+    }
+
+    if (percent >= 85) {
+        return "🟠";
+    }
+
+    if (percent >= 70) {
+        return "🟡";
+    }
 
     return "🟢";
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| FORMAT PERCENT
+|--------------------------------------------------------------------------
+*/
+
 function formatPercent(percent) {
-    return `${Number(percent || 0).toFixed(1)}%`;
+
+    return `${safeNumber(percent).toFixed(1)}%`;
 }
 
-function formatBytes(bytes) {
-    const units = ["B", "KB", "MB", "GB", "TB"];
 
-    let value = Number(bytes) || 0;
+/*
+|--------------------------------------------------------------------------
+| FORMAT BYTES
+|--------------------------------------------------------------------------
+*/
+
+function formatBytes(bytes) {
+
+    const units = [
+        "B",
+        "KB",
+        "MB",
+        "GB",
+        "TB"
+    ];
+
+    let value =
+        safeNumber(bytes);
+
     let unit = 0;
 
     while (
         value >= 1024 &&
         unit < units.length - 1
     ) {
+
         value /= 1024;
         unit++;
     }
@@ -39,150 +160,273 @@ function formatBytes(bytes) {
 }
 
 
-/* =========================================
-   STATUS
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| SYSTEM STATUS
+|--------------------------------------------------------------------------
+*/
 
-function formatStatus(data) {
-
-    const cpu =
-        Number(data.cpu || 0);
-
-    const ram =
-        Number(data.memory?.percent || 0);
-
-    const disk =
-        Number(data.disk?.percent || 0);
-
-    const running =
-        data.docker?.running || 0;
-
-    const stopped =
-        data.docker?.stopped || 0;
-
-
-    /*
-     * Tentukan status sistem
-     */
-
-    let systemStatus =
-        "🟢 ALL SYSTEMS OPERATIONAL";
-
-    let statusIcon = "🟢";
-
+function getSystemStatus(
+    cpu,
+    ram,
+    disk
+) {
 
     if (
         cpu >= 95 ||
         ram >= 95 ||
-        disk >= 95 ||
-        stopped > 0
+        disk >= 95
     ) {
-        systemStatus =
-            "🔴 SYSTEM CRITICAL";
 
-        statusIcon = "🔴";
+        return {
+            text: "🔴 SYSTEM CRITICAL",
+            icon: "🔴"
+        };
+    }
 
-    } else if (
+
+    if (
         cpu >= 85 ||
         ram >= 85 ||
         disk >= 85
     ) {
-        systemStatus =
-            "🟠 SYSTEM WARNING";
 
-        statusIcon = "🟠";
+        return {
+            text: "🟠 SYSTEM WARNING",
+            icon: "🟠"
+        };
+    }
 
-    } else if (
+
+    if (
         cpu >= 70 ||
         ram >= 70 ||
         disk >= 70
     ) {
-        systemStatus =
-            "🟡 SYSTEM NOTICE";
 
-        statusIcon = "🟡";
+        return {
+            text: "🟡 SYSTEM NOTICE",
+            icon: "🟡"
+        };
     }
 
 
+    return {
+        text: "🟢 ALL SYSTEMS OPERATIONAL",
+        icon: "🟢"
+    };
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| STATUS
+|--------------------------------------------------------------------------
+*/
+
+function formatStatus(data) {
+
     /*
-     * Network
+     * CPU
+     */
+
+    const cpu =
+        getCpuValue(data);
+
+
+    /*
+     * RAM
+     */
+
+    const ram =
+        safeNumber(
+            data?.memory?.percent
+        );
+
+
+    /*
+     * DISK
+     */
+
+    const disk =
+        safeNumber(
+            data?.disk?.percent
+        );
+
+
+    /*
+     * DOCKER
+     */
+
+    const running =
+        safeNumber(
+            data?.docker?.running
+        );
+
+
+    const stopped =
+        safeNumber(
+            data?.docker?.stopped
+        );
+
+
+    /*
+     * SYSTEM STATUS
+     *
+     * Docker tidak dimasukkan ke dalam
+     * SYSTEM CRITICAL.
+     *
+     * CPU/RAM/DISK = system resource
+     * Docker = service/container status
+     */
+
+    const system =
+        getSystemStatus(
+            cpu,
+            ram,
+            disk
+        );
+
+
+    /*
+     * NETWORK
      */
 
     const network =
-        data.network || [];
+        Array.isArray(data?.network)
+            ? data.network
+            : [];
+
 
     let rx = 0;
     let tx = 0;
 
+
     for (const iface of network) {
-        rx += Number(iface.rx || 0);
-        tx += Number(iface.tx || 0);
+
+        rx += safeNumber(
+            iface?.rx
+        );
+
+        tx += safeNumber(
+            iface?.tx
+        );
     }
 
 
     /*
-     * Format bytes
-     */
-
-    function bytes(bytes) {
-
-        const units = [
-            "B",
-            "KB",
-            "MB",
-            "GB",
-            "TB"
-        ];
-
-        let value =
-            Number(bytes) || 0;
-
-        let unit = 0;
-
-        while (
-            value >= 1024 &&
-            unit < units.length - 1
-        ) {
-            value /= 1024;
-            unit++;
-        }
-
-        return `${value.toFixed(2)} ${units[unit]}`;
-    }
-
-
-    /*
-     * Warning counter
+     * WARNING COUNTER
      */
 
     let warnings = 0;
 
-    if (cpu >= 70) warnings++;
-    if (ram >= 70) warnings++;
-    if (disk >= 70) warnings++;
-    if (stopped > 0) warnings++;
+
+    if (cpu >= 70) {
+        warnings++;
+    }
+
+
+    if (ram >= 70) {
+        warnings++;
+    }
+
+
+    if (disk >= 70) {
+        warnings++;
+    }
 
 
     /*
-     * Footer
+     * Docker problem dihitung terpisah
+     */
+
+    const dockerProblem =
+        stopped > 0;
+
+
+    /*
+     * FOOTER
      */
 
     let footer;
 
-    if (warnings === 0) {
+
+    if (
+        warnings === 0 &&
+        !dockerProblem
+    ) {
 
         footer =
             "🟢 Monitoring Active";
 
     } else {
 
+        const totalProblems =
+            warnings +
+            (dockerProblem ? 1 : 0);
+
+
         footer =
-            `${statusIcon} ${warnings} resource(s) require attention`;
+            `${system.icon} ` +
+            `${totalProblems} issue(s) require attention`;
     }
 
 
+    /*
+     * HOSTNAME
+     */
+
+    const hostname =
+        data?.hostname ||
+        "Home Server";
+
+
+    /*
+     * UPTIME
+     */
+
+    const uptime =
+        data?.uptime?.formatted ||
+        "-";
+
+
+    /*
+     * LOAD
+     */
+
+    const load1 =
+        safeNumber(
+            data?.load?.one
+        );
+
+
+    const load5 =
+        safeNumber(
+            data?.load?.five
+        );
+
+
+    const load15 =
+        safeNumber(
+            data?.load?.fifteen
+        );
+
+
+    /*
+     * DOCKER STATUS
+     */
+
+    const dockerStatus =
+        stopped > 0
+            ? `🔴 ${stopped} Stopped`
+            : "🟢 0 Stopped";
+
+
     return `╭━━━━━━ 🖥️ SERVER STATUS ━━━━━━╮
-┃ ${systemStatus}
+┃ ${system.text}
+┃
+┃ 🖥️ HOST
+┃ ${hostname}
 ┃
 ┃ ⚙️ SYSTEM
 ┃ CPU  ${progressBar(cpu)} ${cpu.toFixed(0)}%
@@ -191,41 +435,76 @@ function formatStatus(data) {
 ┃
 ┃ 🐳 DOCKER
 ┃ 🟢 ${running} Running
-┃ 🔴 ${stopped} Stopped
+┃ ${dockerStatus}
 ┃
 ┃ 🌐 NETWORK
-┃ RX  ${bytes(rx)}
-┃ TX  ${bytes(tx)}
+┃ RX  ${formatBytes(rx)}
+┃ TX  ${formatBytes(tx)}
 ┃
 ┃ 📊 LOAD
-┃ 1m   ${Number(data.load?.one || 0).toFixed(2)}
-┃ 5m   ${Number(data.load?.five || 0).toFixed(2)}
-┃ 15m  ${Number(data.load?.fifteen || 0).toFixed(2)}
+┃ 1m   ${load1.toFixed(2)}
+┃ 5m   ${load5.toFixed(2)}
+┃ 15m  ${load15.toFixed(2)}
 ┃
 ┃ ⏱️ UPTIME
-┃ ${data.uptime?.formatted || "-"}
+┃ ${uptime}
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯
 🤖 WhatsApp Monitoring
 ${footer}`;
 }
 
-/* =========================================
-   CPU
-========================================= */
+
+/*
+|--------------------------------------------------------------------------
+| CPU
+|--------------------------------------------------------------------------
+*/
 
 function formatCpu(data) {
-    const cpu = Number(data.cpu || 0);
 
-    let status = "🟢 HEALTHY";
+    const cpu =
+        getCpuValue(data);
+
+
+    let status =
+        "🟢 HEALTHY";
+
 
     if (cpu >= 95) {
-        status = "🔴 CRITICAL";
+
+        status =
+            "🔴 CRITICAL";
+
     } else if (cpu >= 85) {
-        status = "🟠 WARNING";
+
+        status =
+            "🟠 WARNING";
+
     } else if (cpu >= 70) {
-        status = "🟡 HIGH";
+
+        status =
+            "🟡 HIGH";
     }
+
+
+    const load1 =
+        safeNumber(
+            data?.load?.one
+        );
+
+
+    const load5 =
+        safeNumber(
+            data?.load?.five
+        );
+
+
+    const load15 =
+        safeNumber(
+            data?.load?.fifteen
+        );
+
 
     return `╭━━━ ⚙️ CPU MONITOR ━━━╮
 ┃
@@ -238,30 +517,48 @@ function formatCpu(data) {
 
 📈 LOAD AVERAGE
 
-1 minute  : ${data.load?.one?.toFixed(2) || "0.00"}
-5 minutes : ${data.load?.five?.toFixed(2) || "0.00"}
-15 minutes: ${data.load?.fifteen?.toFixed(2) || "0.00"}
+1 minute  : ${load1.toFixed(2)}
+5 minutes : ${load5.toFixed(2)}
+15 minutes: ${load15.toFixed(2)}
 
 ⚙️ CPU monitoring aktif`;
 }
 
 
-/* =========================================
-   MEMORY
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| MEMORY
+|--------------------------------------------------------------------------
+*/
 
 function formatMemory(memory) {
-    const percent = Number(memory?.percent || 0);
 
-    let status = "🟢 HEALTHY";
+    const percent =
+        safeNumber(
+            memory?.percent
+        );
+
+
+    let status =
+        "🟢 HEALTHY";
+
 
     if (percent >= 95) {
-        status = "🔴 CRITICAL";
+
+        status =
+            "🔴 CRITICAL";
+
     } else if (percent >= 85) {
-        status = "🟠 WARNING";
+
+        status =
+            "🟠 WARNING";
+
     } else if (percent >= 70) {
-        status = "🟡 HIGH";
+
+        status =
+            "🟡 HIGH";
     }
+
 
     return `╭━━━ 🧠 MEMORY MONITOR ━━━╮
 ┃
@@ -270,9 +567,9 @@ function formatMemory(memory) {
 ┃ RAM Usage
 ┃ ${progressBar(percent)} ${formatPercent(percent)}
 ┃
-┃ Used      : ${formatBytes(memory.used)}
-┃ Available : ${formatBytes(memory.available)}
-┃ Total     : ${formatBytes(memory.total)}
+┃ Used      : ${formatBytes(memory?.used)}
+┃ Available : ${formatBytes(memory?.available)}
+┃ Total     : ${formatBytes(memory?.total)}
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━━━╯
 
@@ -280,22 +577,40 @@ function formatMemory(memory) {
 }
 
 
-/* =========================================
-   DISK
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| DISK
+|--------------------------------------------------------------------------
+*/
 
 function formatDisk(disk) {
-    const percent = Number(disk?.percent || 0);
 
-    let status = "🟢 HEALTHY";
+    const percent =
+        safeNumber(
+            disk?.percent
+        );
+
+
+    let status =
+        "🟢 HEALTHY";
+
 
     if (percent >= 95) {
-        status = "🔴 CRITICAL";
+
+        status =
+            "🔴 CRITICAL";
+
     } else if (percent >= 85) {
-        status = "🟠 WARNING";
+
+        status =
+            "🟠 WARNING";
+
     } else if (percent >= 70) {
-        status = "🟡 HIGH";
+
+        status =
+            "🟡 HIGH";
     }
+
 
     return `╭━━━ 💾 DISK MONITOR ━━━╮
 ┃
@@ -304,9 +619,9 @@ function formatDisk(disk) {
 ┃ Storage
 ┃ ${progressBar(percent)} ${formatPercent(percent)}
 ┃
-┃ Used      : ${formatBytes(disk.used)}
-┃ Available : ${formatBytes(disk.available)}
-┃ Total     : ${formatBytes(disk.total)}
+┃ Used      : ${formatBytes(disk?.used)}
+┃ Available : ${formatBytes(disk?.available)}
+┃ Total     : ${formatBytes(disk?.total)}
 ┃
 ╰━━━━━━━━━━━━━━━━━━━━━━━╯
 
@@ -314,12 +629,19 @@ function formatDisk(disk) {
 }
 
 
-/* =========================================
-   DOCKER
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| DOCKER
+|--------------------------------------------------------------------------
+*/
 
 function formatDocker(containers) {
-    if (!containers || containers.length === 0) {
+
+    if (
+        !Array.isArray(containers) ||
+        containers.length === 0
+    ) {
+
         return `╭━━━ 🐳 DOCKER MONITOR ━━━╮
 ┃
 ┃ ⚠️ Tidak ada container
@@ -328,25 +650,36 @@ function formatDocker(containers) {
 ╰━━━━━━━━━━━━━━━━━━━━━━━╯`;
     }
 
+
     const running =
         containers.filter(
-            (container) => container.running
+            container =>
+                container?.running
         ).length;
 
+
     const stopped =
-        containers.length - running;
+        containers.length -
+        running;
 
-    const list = containers
-        .map((container) => {
-            const icon =
-                container.running
-                    ? "🟢"
-                    : "🔴";
 
-            return `┃ ${icon} ${container.name}
+    const list =
+        containers
+            .map(
+                container => {
+
+                    const icon =
+                        container?.running
+                            ? "🟢"
+                            : "🔴";
+
+
+                    return `┃ ${icon} ${container.name}
 ┃    ${container.status}`;
-        })
-        .join("\n");
+                }
+            )
+            .join("\n");
+
 
     return `╭━━━ 🐳 DOCKER MONITOR ━━━╮
 ┃
@@ -362,12 +695,19 @@ Total   : ${containers.length}
 }
 
 
-/* =========================================
-   NETWORK
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| NETWORK
+|--------------------------------------------------------------------------
+*/
 
 function formatNetwork(network) {
-    if (!network || network.length === 0) {
+
+    if (
+        !Array.isArray(network) ||
+        network.length === 0
+    ) {
+
         return `╭━━━ 🌐 NETWORK MONITOR ━━━╮
 ┃
 ┃ ⚠️ Interface tidak ditemukan.
@@ -375,13 +715,19 @@ function formatNetwork(network) {
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━╯`;
     }
 
-    const list = network
-        .map((item) => {
-            return `┃ 🌐 ${item.name}
+
+    const list =
+        network
+            .map(
+                item => {
+
+                    return `┃ 🌐 ${item.name}
 ┃    RX : ${formatBytes(item.rx)}
 ┃    TX : ${formatBytes(item.tx)}`;
-        })
-        .join("\n");
+                }
+            )
+            .join("\n");
+
 
     return `╭━━━ 🌐 NETWORK MONITOR ━━━╮
 ┃
@@ -393,11 +739,14 @@ ${list}
 }
 
 
-/* =========================================
-   HELP
-========================================= */
+/*
+|--------------------------------------------------------------------------
+| HELP
+|--------------------------------------------------------------------------
+*/
 
 function formatHelp() {
+
     return `╭━━━ 🤖 SERVER MONITOR ━━━╮
 ┃
 ┃ 📊 SYSTEM MONITORING
@@ -442,12 +791,26 @@ untuk menjalankan monitoring.
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| EXPORTS
+|--------------------------------------------------------------------------
+*/
+
 module.exports = {
+
     formatStatus,
+
     formatCpu,
+
     formatMemory,
+
     formatDisk,
+
     formatDocker,
+
     formatNetwork,
+
     formatHelp,
+
 };
