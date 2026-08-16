@@ -9,6 +9,10 @@ const {
 } = require("./home-server-monitor");
 
 const {
+    getAwsStatus,
+} = require("./aws-monitor");
+
+const {
     formatStatus,
     formatCpu,
     formatMemory,
@@ -1411,6 +1415,27 @@ async function handleCommand(
 
     }
 
+    /*
+    * AWS EC2
+    */
+
+    if (
+        command === "!aws"
+    ) {
+
+        const data =
+            await getAwsStatus();
+
+        return formatStatus(data)
+            .replace(
+                "🖥️ SERVER STATUS",
+                "☁️ AWS EC2 STATUS"
+            )
+            .replace(
+                "🤖 WhatsApp Monitoring",
+                "☁️ AWS T4g.micro Monitoring"
+            );
+    }
 
     /*
      * UNKNOWN COMMAND

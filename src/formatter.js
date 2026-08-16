@@ -754,6 +754,9 @@ function formatHelp() {
 ┃ !status
 ┃   └─ Status server lengkap
 ┃
+┃ !aws
+┃   └─ Status EC2 AWS
+┃
 ┃ !cpu
 ┃   └─ CPU & load average
 ┃
