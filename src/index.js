@@ -62,10 +62,61 @@ const COMMAND_COOLDOWN =
 
 /*
 |--------------------------------------------------------------------------
-| SCHEDULER
+| ACCESS CONTROL
 |--------------------------------------------------------------------------
 |
-| Default:
+| ADMIN_NUMBER
+| → Nomor utama yang memiliki akses monitoring.
+|
+| SPECIAL_NUMBER
+| → Ditangani oleh special-game.js melalui isSpecialUser().
+|
+| Nomor lainnya
+| → Tidak mendapatkan balasan sama sekali.
+|
+|--------------------------------------------------------------------------
+*/
+
+function normalizeNumber(number) {
+
+    if (!number) {
+        return "";
+    }
+
+    return String(number)
+        .replace(/\D/g, "")
+        .replace(/^0/, "62");
+}
+
+
+const ADMIN_NUMBER =
+    normalizeNumber(
+        process.env.ADMIN_NUMBER || ""
+    );
+
+
+function isAdmin(number) {
+
+    if (!ADMIN_NUMBER) {
+
+        console.error(
+            "[ACCESS] ADMIN_NUMBER belum dikonfigurasi!"
+        );
+
+        return false;
+    }
+
+    return (
+        normalizeNumber(number) ===
+        ADMIN_NUMBER
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| SCHEDULER
+|--------------------------------------------------------------------------
 |
 | STATUS_REPORT_INTERVAL = 30 menit
 | ALERT_CHECK_INTERVAL   = 1 menit
@@ -78,10 +129,12 @@ const STATUS_INTERVAL =
         process.env.STATUS_REPORT_INTERVAL
     ) || 30 * 60 * 1000;
 
+
 const ALERT_INTERVAL =
     Number(
         process.env.ALERT_CHECK_INTERVAL
     ) || 60 * 1000;
+
 
 const STATUS_REPORT_NUMBER =
     process.env.STATUS_REPORT_NUMBER || "";
@@ -99,11 +152,13 @@ const evolution = axios.create({
         process.env.EVOLUTION_API_URL,
 
     headers: {
+
         apikey:
             process.env.EVOLUTION_API_KEY,
 
         "Content-Type":
             "application/json",
+
     },
 
     timeout: 15000,
@@ -120,18 +175,23 @@ const evolution = axios.create({
 /*
  * Chat yang sedang menjalankan command.
  */
-const activeChats = new Set();
+
+const activeChats =
+    new Set();
 
 
 /*
  * Cooldown setiap chat.
  */
-const cooldowns = new Map();
+
+const cooldowns =
+    new Map();
 
 
 /*
  * State resource alert.
  */
+
 const alertState = {
 
     cpu: "normal",
@@ -143,24 +203,6 @@ const alertState = {
     docker: "normal",
 
 };
-
-
-/*
-|--------------------------------------------------------------------------
-| NUMBER UTILITY
-|--------------------------------------------------------------------------
-*/
-
-function normalizeNumber(number) {
-
-    if (!number) {
-        return "";
-    }
-
-    return String(number)
-        .replace(/\D/g, "")
-        .replace(/^0/, "62");
-}
 
 
 /*
@@ -207,6 +249,7 @@ async function sendWhatsApp(
         throw error;
 
     }
+
 }
 
 
@@ -243,7 +286,7 @@ function isOwnMessage(data) {
 
 
     /*
-     * Bandingkan nomor bot.
+     * Bandingkan dengan nomor bot.
      */
 
     if (BOT_NUMBER) {
@@ -419,18 +462,8 @@ function parseMessage(body) {
 */
 
 /*
- * SEMUA monitoring sekarang berasal dari Home Server.
- *
- * EC2 tidak lagi menggunakan:
- *
- * getCpuUsage()
- * getMemory()
- * getDisk()
- * getUptime()
- * getDockerContainers()
- * getNetwork()
- *
- * dari host-monitor.js.
+ * Semua monitoring Home Server
+ * mengambil data dari Home Server Agent.
  */
 
 async function getFullStatus() {
@@ -885,13 +918,7 @@ async function checkServerAlerts() {
     try {
 
         /*
-         * PENTING:
-         *
-         * Data diambil dari:
-         *
-         * Home Server /status
-         *
-         * bukan dari EC2.
+         * Data berasal dari Home Server.
          */
 
         const data =
@@ -899,23 +926,28 @@ async function checkServerAlerts() {
 
 
         /*
-        * CPU
-        */
+         * CPU
+         */
 
         const cpuValue =
             data?.cpu?.usage ??
             data?.cpu ??
             0;
 
-        const cpu = Number(cpuValue);
+
+        const cpu =
+            Number(cpuValue);
+
 
         const safeCpu =
             Number.isFinite(cpu)
                 ? cpu
                 : 0;
 
+
         const cpuLevel =
             getResourceLevel(
+
                 safeCpu,
 
                 Number(
@@ -925,15 +957,8 @@ async function checkServerAlerts() {
                 Number(
                     process.env.ALERT_CPU_CRITICAL
                 ) || 95
-            );
 
-        await processResourceAlert(
-            "cpu",
-            cpuLevel,
-            safeCpu,
-            STATUS_REPORT_NUMBER,
-            "CPU"
-        );
+            );
 
 
         /*
@@ -991,7 +1016,7 @@ async function checkServerAlerts() {
 
 
         /*
-         * Resource alerts.
+         * Resource alerts
          */
 
         await processResourceAlert(
@@ -1000,7 +1025,7 @@ async function checkServerAlerts() {
 
             cpuLevel,
 
-            cpu,
+            safeCpu,
 
             STATUS_REPORT_NUMBER,
 
@@ -1040,7 +1065,7 @@ async function checkServerAlerts() {
 
 
         /*
-         * Docker alert.
+         * Docker alert
          */
 
         await checkDockerAlert(
@@ -1106,19 +1131,6 @@ function parseCommand(text) {
 |--------------------------------------------------------------------------
 | COMMAND HANDLER
 |--------------------------------------------------------------------------
-|
-| SEMUA COMMAND MONITORING:
-|
-| !status
-| !cpu
-| !ram
-| !disk
-| !uptime
-| !docker
-| !network
-|
-| sekarang mengambil data dari Home Server.
-|--------------------------------------------------------------------------
 */
 
 async function handleCommand(
@@ -1148,6 +1160,7 @@ async function handleCommand(
 
             const health =
                 await getHomeServerHealth();
+
 
             homeOnline =
                 health?.status === "online";
@@ -1307,13 +1320,7 @@ async function handleCommand(
 
                 used: 0,
 
-                free:
-                    data?.disk?.available ||
-                    0,
-
-                available:
-                    data?.disk?.free ||
-                    0,
+                available: 0,
 
                 percent: 0,
 
@@ -1415,9 +1422,10 @@ async function handleCommand(
 
     }
 
+
     /*
-    * AWS EC2
-    */
+     * AWS EC2
+     */
 
     if (
         command === "!aws"
@@ -1425,6 +1433,7 @@ async function handleCommand(
 
         const data =
             await getAwsStatus();
+
 
         return formatStatus(data)
             .replace(
@@ -1435,7 +1444,9 @@ async function handleCommand(
                 "🤖 WhatsApp Monitoring",
                 "☁️ AWS T4g.micro Monitoring"
             );
+
     }
+
 
     /*
      * UNKNOWN COMMAND
@@ -1475,8 +1486,17 @@ async function processMessage(
 
 
     /*
-     * SPECIAL USER MODE
-     */
+    |--------------------------------------------------------------------------
+    | SPECIAL USER
+    |--------------------------------------------------------------------------
+    |
+    | Nomor special diproses terlebih dahulu.
+    |
+    | Nomor ini tetap bisa menggunakan
+    | fitur special-game.js.
+    |
+    |--------------------------------------------------------------------------
+    */
 
     if (
         isSpecialUser(chat)
@@ -1535,7 +1555,7 @@ async function processMessage(
 
 
         /*
-         * Fallback.
+         * Special fallback
          */
 
         const fallback =
@@ -1556,8 +1576,46 @@ async function processMessage(
 
 
     /*
-     * NORMAL MONITORING MODE
-     */
+    |--------------------------------------------------------------------------
+    | ADMIN ACCESS
+    |--------------------------------------------------------------------------
+    |
+    | Hanya ADMIN_NUMBER yang boleh
+    | menjalankan monitoring.
+    |
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        !isAdmin(chat)
+    ) {
+
+        console.log(
+            `[ACCESS DENIED] Ignoring message from ${chat}`
+        );
+
+        /*
+         * PENTING:
+         *
+         * Tidak ada sendWhatsApp()
+         * di sini.
+         *
+         * Jadi nomor yang tidak
+         * memiliki akses akan
+         * benar-benar tidak mendapat
+         * balasan.
+         */
+
+        return;
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | NORMAL MONITORING MODE
+    |--------------------------------------------------------------------------
+    */
 
     if (
         activeChats.has(chat)
@@ -1673,9 +1731,7 @@ beberapa saat lagi.`
 
             );
 
-        } catch (
-            sendError
-        ) {
+        } catch (sendError) {
 
             console.error(
                 "[COMMAND] Failed to send error:",
@@ -1713,7 +1769,7 @@ app.get(
                 "WhatsApp Server Monitoring Bot",
 
             version:
-                "3.0.0",
+                "3.1.0",
 
             instance:
                 INSTANCE,
@@ -1912,6 +1968,13 @@ app.listen(
         console.log(
             `Bot      : ${
                 BOT_NUMBER ||
+                "not configured"
+            }`
+        );
+
+        console.log(
+            `Admin    : ${
+                ADMIN_NUMBER ||
                 "not configured"
             }`
         );
